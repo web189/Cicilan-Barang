@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cicilan Barang CV.ASA MANDIRI NIAGA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="favicon.png">
+</head>
+<body>
+
+  <header>
+    <div class="header-brand">
+      <div class="brand-icon">₿</div>
+      <div>
+        <div class="brand-title">CV.ASA MANDIRI NIAGA</div>
+        <div class="brand-sub">Sistem Manajemen Cicilan 2026 Berbasis Website Database Realtime </div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span id="adminBadge" class="admin-badge hidden">👤 Admin</span>
+      <button id="loginBtn" class="btn btn-primary">🔐 Login</button>
+      <button id="logoutBtn" class="btn btn-outline hidden">🚪 Keluar</button>
+    </div>
+  </header>
+
+  <div class="container">
+
+    <!-- ADMIN PANEL -->
+    <div id="formMenu" class="admin-panel hidden">
+      <div class="admin-panel-title">Panel Admin</div>
+      <div class="admin-btns">
+        <button class="btn btn-action" onclick="showForm('baru')">
+          <span class="btn-icon">➕</span>
+          <span>Cicilan Baru</span>
+        </button>
+        <button class="btn btn-action" onclick="showForm('bayar')">
+          <span class="btn-icon">💰</span>
+          <span>Bayar Cicilan</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- FORM CICILAN BARU -->
+    <div id="formBaru" class="card form-card hidden">
+      <div class="form-header">
+        <h3>➕ Input Cicilan Baru</h3>
+        <button class="btn-close" onclick="hideForm()">✕</button>
+      </div>
+      <div class="form-group">
+        <label>Nama Barang</label>
+        <input type="text" id="namaBarangBaru" placeholder="Contoh: HP Samsung A55">
+      </div>
+      <div class="form-group">
+        <label>Harga Total (Rp)</label>
+        <input type="number" id="hargaTotal" placeholder="Contoh: 5000000">
+      </div>
+      <div class="form-group">
+        <label>Jumlah Cicilan (bulan)</label>
+        <input type="number" id="jumlahCicilan" placeholder="Contoh: 12" min="1">
+      </div>
+      <div class="form-group">
+        <label>Tanggal Mulai</label>
+        <input type="date" id="tglMulaiBaru">
+      </div>
+      <div class="form-preview" id="previewCicilan" style="display:none">
+        <div class="preview-label">Cicilan per bulan:</div>
+        <div class="preview-amount" id="previewAmount">Rp 0</div>
+      </div>
+      <button class="btn btn-save" onclick="saveCicilan()">💾 Simpan Cicilan</button>
+    </div>
+
+    <!-- FORM BAYAR -->
+    <div id="formBayar" class="card form-card hidden">
+      <div class="form-header">
+        <h3>💰 Input Pembayaran</h3>
+        <button class="btn-close" onclick="hideForm()">✕</button>
+      </div>
+      <div class="form-group">
+        <label>Pilih Barang</label>
+        <select id="pilihBarang"></select>
+      </div>
+      <div class="form-group">
+        <label>Tanggal Bayar</label>
+        <input type="date" id="tglBayar">
+      </div>
+      <div class="form-group">
+        <label>Nominal (Rp)</label>
+        <input type="number" id="nominal" placeholder="Contoh: 500000">
+      </div>
+      <div class="form-group">
+        <label>Bukti Pembayaran</label>
+        <div class="file-upload-area" id="fileDropArea">
+          <input type="file" id="bukti" accept="image/*">
+          <div class="file-upload-label">
+            <div class="file-icon">📷</div>
+            <div>Tap untuk pilih foto bukti</div>
+            <div class="file-hint">JPG, PNG, max 3MB</div>
+          </div>
+          <img id="previewImg" style="display:none;">
+        </div>
+      </div>
+      <button class="btn btn-save" onclick="saveBayar()">💾 Simpan Pembayaran</button>
+    </div>
+
+    <!-- SUMMARY CARDS -->
+    <div class="summary-row" id="summaryRow"></div>
+
+    <!-- TABLE -->
+    <div class="card">
+      <div class="table-header">
+        <h3>📋 Daftar Cicilan</h3>
+        <div class="filter-row">
+          <input type="text" id="searchInput" placeholder="🔍 Cari barang..." oninput="renderTable()">
+        </div>
+      </div>
+      <div id="dataTable" class="cicilan-list"></div>
+    </div>
+
+  </div>
+
+  <!-- MODAL LOGIN -->
+  <div id="loginModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-icon">🔐</div>
+      <h3>Login Admin</h3>
+      <p class="modal-sub">Masukkan password untuk akses panel admin</p>
+      <div class="form-group">
+        <input type="password" id="password" placeholder="Password" onkeypress="if(event.key==='Enter') doLogin()">
+      </div>
+      <button class="btn btn-save" id="btnLoginAksi" onclick="doLogin()">Masuk</button>
+    </div>
+  </div>
+
+  <!-- MODAL DETAIL -->
+  <div id="detailModal" class="modal">
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h3 id="detailTitle">Detail Cicilan</h3>
+        <button class="btn-close" onclick="closeModal('detailModal')">✕</button>
+      </div>
+      <div id="detailBody"></div>
+    </div>
+  </div>
+
+  <!-- MODAL GAMBAR -->
+  <div id="imgModal" class="modal" onclick="closeModal('imgModal')">
+    <div class="img-modal-content">
+      <img id="imgModalSrc" src="">
+      <div class="img-hint">Tap di mana saja untuk tutup</div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
