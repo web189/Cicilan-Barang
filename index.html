@@ -8,6 +8,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <link rel="icon" href="favicon.png">
+  <!-- Font Awesome untuk ikon Instagram -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
 <body>
 
@@ -16,10 +18,12 @@
       <div class="brand-icon">₿</div>
       <div>
         <div class="brand-title">CV.ASA MANDIRI NIAGA</div>
-        <div class="brand-sub">Sistem Manajemen Cicilan 2026 Berbasis Website Database Realtime </div>
-		<small><a href="https://www.instagram.com/benyoriki/" target="_blank" class="ig-link">
-        <i class="fa-brands fa-instagram"></i> @benyoriki
-      </a></small>
+        <div class="brand-sub">Sistem Manajemen Cicilan 2026 — Realtime Database</div>
+        <small>
+          <a href="https://www.instagram.com/benyoriki/" target="_blank" class="ig-link">
+            <i class="fa-brands fa-instagram"></i> @benyoriki
+          </a>
+        </small>
       </div>
     </div>
     <div class="header-actions">
@@ -58,7 +62,7 @@
       </div>
       <div class="form-group">
         <label>Harga Total (Rp)</label>
-        <input type="number" id="hargaTotal" placeholder="Contoh: 5000000">
+        <input type="number" id="hargaTotal" placeholder="Contoh: 5000000" min="0">
       </div>
       <div class="form-group">
         <label>Jumlah Cicilan (bulan)</label>
@@ -91,10 +95,10 @@
       </div>
       <div class="form-group">
         <label>Nominal (Rp)</label>
-        <input type="number" id="nominal" placeholder="Contoh: 500000">
+        <input type="number" id="nominal" placeholder="Contoh: 500000" min="1">
       </div>
       <div class="form-group">
-        <label>Bukti Pembayaran</label>
+        <label>Bukti Pembayaran <span style="color:var(--text3);font-weight:400;text-transform:none;">(opsional)</span></label>
         <div class="file-upload-area" id="fileDropArea">
           <input type="file" id="bukti" accept="image/*">
           <div class="file-upload-label">
@@ -102,7 +106,7 @@
             <div>Tap untuk pilih foto bukti</div>
             <div class="file-hint">JPG, PNG, max 3MB</div>
           </div>
-          <img id="previewImg" style="display:none;">
+          <img id="previewImg" style="display:none;" alt="Preview">
         </div>
       </div>
       <button class="btn btn-save" onclick="saveBayar()">💾 Simpan Pembayaran</button>
@@ -116,12 +120,27 @@
       <div class="table-header">
         <h3>📋 Daftar Cicilan</h3>
         <div class="filter-row">
-          <input type="text" id="searchInput" placeholder="🔍 Cari barang..." oninput="renderTable()">
+          <input type="text" id="searchInput" placeholder="🔍 Cari nama barang..." oninput="renderTable()">
         </div>
       </div>
-      <div id="dataTable" class="cicilan-list"></div>
+      <div id="dataTable" class="cicilan-list">
+        <div class="empty-state">
+          <div class="empty-icon">⏳</div>
+          <div class="empty-text">Memuat data...</div>
+          <div class="empty-sub">Menghubungkan ke database</div>
+        </div>
+      </div>
     </div>
 
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <p>Web Developer &amp; Programmer by
+      <a href="https://www.instagram.com/benyoriki/" target="_blank">
+        <i class="fa-brands fa-instagram"></i> @benyoriki
+      </a>
+    </p>
   </div>
 
   <!-- MODAL LOGIN -->
@@ -141,7 +160,7 @@
   <div id="detailModal" class="modal">
     <div class="modal-content modal-large">
       <div class="modal-header">
-        <h3 id="detailTitle">Detail Cicilan</h3>
+        <h3 id="detailTitle" style="text-align:left;font-size:16px;">Detail Cicilan</h3>
         <button class="btn-close" onclick="closeModal('detailModal')">✕</button>
       </div>
       <div id="detailBody"></div>
@@ -151,10 +170,36 @@
   <!-- MODAL GAMBAR -->
   <div id="imgModal" class="modal" onclick="closeModal('imgModal')">
     <div class="img-modal-content">
-      <img id="imgModalSrc" src="">
+      <img id="imgModalSrc" src="" alt="Bukti Pembayaran">
       <div class="img-hint">Tap di mana saja untuk tutup</div>
     </div>
   </div>
+
+  <!-- Firebase SDK v10 (modular compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyAKhlfOPnUBHt7Q_5KGLysFsyCNFivu1Ns",
+      authDomain: "cicilan-asa-mandiri.firebaseapp.com",
+      databaseURL: "https://cicilan-asa-mandiri-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "cicilan-asa-mandiri",
+      storageBucket: "cicilan-asa-mandiri.firebasestorage.app",
+      messagingSenderId: "872859255702",
+      appId: "1:872859255702:web:0d5cfb47aff2c93d3653b7"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // Aktifkan cache offline Firestore
+    db.enablePersistence({ synchronizeTabs: true }).catch((err) => {
+      if (err.code !== 'failed-precondition' && err.code !== 'unimplemented') {
+        console.warn("Offline persistence:", err);
+      }
+    });
+  </script>
 
   <script src="app.js"></script>
 </body>

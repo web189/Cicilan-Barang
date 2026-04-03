@@ -1,12 +1,30 @@
 // ================= DATA =================
-let data = JSON.parse(localStorage.getItem("cicilan")) || [];
+let data = [];
 let isAdmin = false;
 
 // ================= ELEMENTS =================
 const loginBtn = document.getElementById("loginBtn");
 const logoutBtn = document.getElementById("logoutBtn");
-const modal = document.getElementById("loginModal");
-const btnLoginAksi = document.getElementById("btnLoginAksi");
+
+// ================= FIRESTORE REALTIME LISTENER =================
+function loadDataRealtime() {
+  db.collection("cicilan")
+    .orderBy("createdAt", "desc")
+    .onSnapshot(
+      (snapshot) => {
+        data = [];
+        snapshot.forEach((doc) => {
+          data.push({ id: doc.id, ...doc.data() });
+        });
+        renderTable();
+        renderSummary();
+      },
+      (err) => {
+        console.error("Firestore error:", err);
+        showToast("⚠️ Gagal memuat data: " + err.message, "error");
+      }
+    );
+}
 
 // ================= RENDER TABLE =================
 function renderTable() {
@@ -14,7 +32,7 @@ function renderTable() {
   const searchVal = (document.getElementById("searchInput")?.value || "").toLowerCase();
 
   const filtered = data.filter(item =>
-    item.nama.toLowerCase().includes(searchVal)
+    (item.nama || "").toLowerCase().includes(searchVal)
   );
 
   if (filtered.length === 0) {
@@ -32,21 +50,22 @@ function renderTable() {
   container.innerHTML = "";
 
   filtered.forEach((item) => {
-    // Dapatkan index asli dari data[]
-    const realIndex = data.indexOf(item);
+    const docId = item.id;
 
-    const totalBayar = item.pembayaran.reduce((a, b) => a + Number(b.nominal), 0);
+    const pembayaran = Array.isArray(item.pembayaran) ? item.pembayaran : [];
+    const totalBayar = pembayaran.reduce((a, b) => a + Number(b.nominal || 0), 0);
     const hargaTotal = Number(item.hargaTotal) || 0;
     const jumlahCicilan = Number(item.jumlahCicilan) || 0;
     const sisaBayar = hargaTotal > 0 ? Math.max(0, hargaTotal - totalBayar) : null;
     const progress = hargaTotal > 0 ? Math.min(100, Math.round((totalBayar / hargaTotal) * 100)) : null;
-    const sudahBayar = item.pembayaran.length;
+    const sudahBayar = pembayaran.length;
     const sisaCicilan = jumlahCicilan > 0 ? Math.max(0, jumlahCicilan - sudahBayar) : null;
+    const isLunas = hargaTotal > 0 && totalBayar >= hargaTotal;
 
     const progressHTML = progress !== null ? `
       <div class="progress-wrap">
         <div class="progress-bar">
-          <div class="progress-fill" style="width: ${progress}%"></div>
+          <div class="progress-fill ${isLunas ? 'lunas-fill' : ''}" style="width: ${progress}%"></div>
         </div>
         <span class="progress-pct">${progress}%</span>
       </div>
@@ -54,8 +73,8 @@ function renderTable() {
 
     const sisaHTML = sisaBayar !== null ? `
       <div class="cicilan-meta-row">
-        <span class="meta-item ${sisaBayar === 0 ? 'lunas' : ''}">
-          ${sisaBayar === 0 ? '✅ LUNAS' : `Sisa: Rp ${formatRupiah(sisaBayar)}`}
+        <span class="meta-item ${isLunas ? 'lunas' : ''}">
+          ${isLunas ? '✅ LUNAS' : `Sisa: Rp ${formatRupiah(sisaBayar)}`}
         </span>
         ${sisaCicilan !== null ? `<span class="meta-item">Sisa ${sisaCicilan}x cicilan</span>` : ''}
       </div>
@@ -65,16 +84,16 @@ function renderTable() {
       ? `<span class="meta-item">Rp ${formatRupiah(Math.round(hargaTotal / jumlahCicilan))}/bulan</span>` : '';
 
     const box = document.createElement("div");
-    box.className = "cicilan-item";
+    box.className = `cicilan-item${isLunas ? ' item-lunas' : ''}`;
     box.innerHTML = `
       <div class="cicilan-header">
         <div class="cicilan-info">
-          <div class="cicilan-nama">📦 ${item.nama}</div>
+          <div class="cicilan-nama">📦 ${escHtml(item.nama)}</div>
           <div class="cicilan-tgl">Mulai: ${formatTgl(item.mulai)}</div>
         </div>
         <div class="cicilan-actions">
-          <button class="btn-icon-sm btn-detail" onclick="showDetail(${realIndex})">🔍</button>
-          ${isAdmin ? `<button class="btn-icon-sm btn-hapus" onclick="deleteData(${realIndex})">🗑️</button>` : ''}
+          <button class="btn-icon-sm btn-detail" onclick="showDetail('${docId}')">🔍</button>
+          ${isAdmin ? `<button class="btn-icon-sm btn-hapus" onclick="deleteData('${docId}', '${escHtml(item.nama)}')">🗑️</button>` : ''}
         </div>
       </div>
 
@@ -98,15 +117,16 @@ function renderTable() {
       ${sisaHTML}
       ${cicPerBulan ? `<div class="cicilan-meta-row">${cicPerBulan}</div>` : ''}
 
-      ${item.pembayaran.length > 0 ? `
+      ${pembayaran.length > 0 ? `
         <div class="pembayaran-list">
-          ${item.pembayaran.map((p, i) => `
+          <div class="pay-header">Riwayat Pembayaran</div>
+          ${pembayaran.map((p, i) => `
             <div class="pembayaran-row">
               <span class="pay-num">${i + 1}</span>
               <span class="pay-tgl">${formatTgl(p.tgl)}</span>
               <span class="pay-nominal">Rp ${formatRupiah(p.nominal)}</span>
               ${p.bukti ? `<button class="btn-bukti" onclick="viewImage('${p.bukti}')">📷</button>` : '<span class="no-bukti">-</span>'}
-              ${isAdmin ? `<button class="btn-hapus-bayar" onclick="deleteBayar(${realIndex}, ${i})">✕</button>` : ''}
+              ${isAdmin ? `<button class="btn-hapus-bayar" onclick="deleteBayar('${docId}', ${i})">✕</button>` : ''}
             </div>
           `).join('')}
         </div>
@@ -125,54 +145,60 @@ function renderSummary() {
   if (!row) return;
 
   const totalItem = data.length;
-  const totalTerbayar = data.reduce((sum, item) =>
-    sum + item.pembayaran.reduce((a, b) => a + Number(b.nominal), 0), 0);
+  const totalTerbayar = data.reduce((sum, item) => {
+    const p = Array.isArray(item.pembayaran) ? item.pembayaran : [];
+    return sum + p.reduce((a, b) => a + Number(b.nominal || 0), 0);
+  }, 0);
   const totalTagihan = data.reduce((sum, item) => sum + (Number(item.hargaTotal) || 0), 0);
   const lunas = data.filter(item => {
-    const bayar = item.pembayaran.reduce((a, b) => a + Number(b.nominal), 0);
+    const p = Array.isArray(item.pembayaran) ? item.pembayaran : [];
+    const bayar = p.reduce((a, b) => a + Number(b.nominal || 0), 0);
     return item.hargaTotal > 0 && bayar >= item.hargaTotal;
   }).length;
+  const sisaTagihan = Math.max(0, totalTagihan - totalTerbayar);
 
   row.innerHTML = `
-    <div class="summary-card">
+    <div class="summary-card sc-blue">
       <div class="sum-icon">📦</div>
       <div class="sum-val">${totalItem}</div>
       <div class="sum-label">Total Barang</div>
     </div>
-    <div class="summary-card">
+    <div class="summary-card sc-green">
       <div class="sum-icon">✅</div>
       <div class="sum-val">${lunas}</div>
       <div class="sum-label">Lunas</div>
     </div>
-    <div class="summary-card">
+    <div class="summary-card sc-cyan">
       <div class="sum-icon">💳</div>
       <div class="sum-val">Rp ${formatRupiah(totalTerbayar)}</div>
       <div class="sum-label">Total Terbayar</div>
     </div>
     ${totalTagihan > 0 ? `
-    <div class="summary-card">
+    <div class="summary-card sc-orange">
       <div class="sum-icon">🏷️</div>
-      <div class="sum-val">Rp ${formatRupiah(Math.max(0, totalTagihan - totalTerbayar))}</div>
+      <div class="sum-val">Rp ${formatRupiah(sisaTagihan)}</div>
       <div class="sum-label">Sisa Tagihan</div>
     </div>` : ''}
   `;
 }
 
-// ================= VIEW IMAGE (modal, bukan popup) =================
+// ================= VIEW IMAGE =================
 function viewImage(src) {
   if (!src) { showToast("⚠️ Bukti tidak tersedia", "error"); return; }
   document.getElementById("imgModalSrc").src = src;
   openModal("imgModal");
 }
 
-// ================= SHOW DETAIL (modal) =================
-function showDetail(index) {
-  const item = data[index];
+// ================= SHOW DETAIL =================
+function showDetail(docId) {
+  const item = data.find(d => d.id === docId);
   if (!item) return;
 
-  const totalBayar = item.pembayaran.reduce((a, b) => a + Number(b.nominal), 0);
+  const pembayaran = Array.isArray(item.pembayaran) ? item.pembayaran : [];
+  const totalBayar = pembayaran.reduce((a, b) => a + Number(b.nominal || 0), 0);
   const hargaTotal = Number(item.hargaTotal) || 0;
   const progress = hargaTotal > 0 ? Math.min(100, Math.round((totalBayar / hargaTotal) * 100)) : null;
+  const isLunas = hargaTotal > 0 && totalBayar >= hargaTotal;
 
   document.getElementById("detailTitle").textContent = `📦 ${item.nama}`;
 
@@ -181,23 +207,24 @@ function showDetail(index) {
       <div class="detail-row"><span>Tanggal Mulai</span><b>${formatTgl(item.mulai)}</b></div>
       ${hargaTotal > 0 ? `<div class="detail-row"><span>Harga Total</span><b>Rp ${formatRupiah(hargaTotal)}</b></div>` : ''}
       ${item.jumlahCicilan > 0 ? `<div class="detail-row"><span>Jumlah Cicilan</span><b>${item.jumlahCicilan}x</b></div>` : ''}
+      ${item.jumlahCicilan > 0 && hargaTotal > 0 ? `<div class="detail-row"><span>Per Bulan</span><b>Rp ${formatRupiah(Math.round(hargaTotal / item.jumlahCicilan))}</b></div>` : ''}
       <div class="detail-row"><span>Total Terbayar</span><b>Rp ${formatRupiah(totalBayar)}</b></div>
-      ${hargaTotal > 0 ? `<div class="detail-row"><span>Sisa</span><b class="${totalBayar >= hargaTotal ? 'lunas' : ''}">
-        ${totalBayar >= hargaTotal ? '✅ LUNAS' : 'Rp ' + formatRupiah(hargaTotal - totalBayar)}
+      ${hargaTotal > 0 ? `<div class="detail-row"><span>Status</span><b class="${isLunas ? 'lunas' : ''}">
+        ${isLunas ? '✅ LUNAS' : 'Rp ' + formatRupiah(hargaTotal - totalBayar) + ' lagi'}
       </b></div>` : ''}
     </div>
     ${progress !== null ? `
     <div class="progress-wrap" style="margin: 12px 0">
-      <div class="progress-bar"><div class="progress-fill" style="width:${progress}%"></div></div>
+      <div class="progress-bar"><div class="progress-fill ${isLunas ? 'lunas-fill' : ''}" style="width:${progress}%"></div></div>
       <span class="progress-pct">${progress}%</span>
     </div>` : ''}
-    <h4 style="margin:16px 0 8px">Riwayat Pembayaran</h4>
+    <div class="detail-pay-title">Riwayat Pembayaran (${pembayaran.length}x)</div>
   `;
 
-  if (item.pembayaran.length === 0) {
+  if (pembayaran.length === 0) {
     html += `<div class="no-bayar">Belum ada pembayaran</div>`;
   } else {
-    item.pembayaran.forEach((p, i) => {
+    pembayaran.forEach((p, i) => {
       html += `
         <div class="detail-pay-row">
           <div class="detail-pay-num">${i + 1}</div>
@@ -220,10 +247,8 @@ function formatRupiah(angka) {
   return new Intl.NumberFormat("id-ID").format(angka);
 }
 
-// FIX: gunakan split agar tidak kena timezone offset
 function formatTgl(tgl) {
   if (!tgl) return "-";
-  // format: YYYY-MM-DD
   const parts = tgl.split("-");
   if (parts.length === 3) {
     const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
@@ -233,13 +258,19 @@ function formatTgl(tgl) {
   return isNaN(d) ? tgl : d.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function escHtml(str) {
+  return String(str || "").replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 // ================= MODAL HELPERS =================
 function openModal(id) {
   document.getElementById(id).classList.add("show");
+  document.body.style.overflow = "hidden";
 }
 
 function closeModal(id) {
   document.getElementById(id).classList.remove("show");
+  document.body.style.overflow = "";
 }
 
 // ================= TAMPIL FORM =================
@@ -249,10 +280,10 @@ function showForm(type) {
 
   if (type === "baru") {
     document.getElementById("formBaru").classList.remove("hidden");
-    document.getElementById("formBaru").scrollIntoView({ behavior: "smooth", block: "start" });
+    setTimeout(() => document.getElementById("formBaru").scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   } else {
     document.getElementById("formBayar").classList.remove("hidden");
-    document.getElementById("formBayar").scrollIntoView({ behavior: "smooth", block: "start" });
+    setTimeout(() => document.getElementById("formBayar").scrollIntoView({ behavior: "smooth", block: "start" }), 50);
     loadSelectBarang();
   }
 }
@@ -265,9 +296,7 @@ function hideForm() {
 // ================= LOAD SELECT =================
 function loadSelectBarang() {
   const select = document.getElementById("pilihBarang");
-  // Simpan pilihan sebelumnya jika ada
   const prevVal = select.value;
-
   select.innerHTML = "";
 
   if (data.length === 0) {
@@ -277,154 +306,132 @@ function loadSelectBarang() {
 
   select.innerHTML = `<option value="">-- Pilih Barang --</option>`;
 
-  data.forEach((item, index) => {
-    const totalBayar = item.pembayaran.reduce((a, b) => a + Number(b.nominal), 0);
+  data.forEach((item) => {
+    const pembayaran = Array.isArray(item.pembayaran) ? item.pembayaran : [];
+    const totalBayar = pembayaran.reduce((a, b) => a + Number(b.nominal || 0), 0);
     const harga = Number(item.hargaTotal) || 0;
     const label = harga > 0
       ? `${item.nama} (sisa Rp ${formatRupiah(Math.max(0, harga - totalBayar))})`
       : item.nama;
-    select.innerHTML += `<option value="${index}">${label}</option>`;
+    select.innerHTML += `<option value="${item.id}">${label}</option>`;
   });
 
-  // Kembalikan pilihan sebelumnya jika masih valid
-  if (prevVal !== "" && data[Number(prevVal)]) {
+  if (prevVal && data.find(d => d.id === prevVal)) {
     select.value = prevVal;
   }
 }
 
-// ================= SIMPAN CICILAN BARU =================
+// ================= SIMPAN CICILAN BARU (Firestore) =================
 function saveCicilan() {
   const nama = document.getElementById("namaBarangBaru").value.trim();
   const hargaTotal = document.getElementById("hargaTotal").value;
   const jumlahCicilan = document.getElementById("jumlahCicilan").value;
   const mulai = document.getElementById("tglMulaiBaru").value;
 
-  if (!nama) {
-    showToast("⚠️ Nama barang wajib diisi!", "error");
-    return;
-  }
-  if (!mulai) {
-    showToast("⚠️ Tanggal mulai wajib diisi!", "error");
-    return;
-  }
+  if (!nama) { showToast("⚠️ Nama barang wajib diisi!", "error"); return; }
+  if (!mulai) { showToast("⚠️ Tanggal mulai wajib diisi!", "error"); return; }
 
-  data.push({
+  const btnSave = document.querySelector('#formBaru .btn-save');
+  btnSave.disabled = true;
+  btnSave.textContent = "⏳ Menyimpan...";
+
+  db.collection("cicilan").add({
     nama,
     hargaTotal: hargaTotal ? Number(hargaTotal) : 0,
     jumlahCicilan: jumlahCicilan ? Number(jumlahCicilan) : 0,
     mulai,
-    pembayaran: []
+    pembayaran: [],
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  })
+  .then(() => {
+    clearFormBaru();
+    hideForm();
+    showToast("✅ Cicilan baru berhasil ditambah!");
+  })
+  .catch((err) => {
+    showToast("❌ Gagal simpan: " + err.message, "error");
+  })
+  .finally(() => {
+    btnSave.disabled = false;
+    btnSave.textContent = "💾 Simpan Cicilan";
   });
-
-  saveToStorage();
-  renderTable();
-  clearFormBaru();
-  hideForm();
-  showToast("✅ Cicilan baru berhasil ditambah!");
 }
 
-// ================= SIMPAN PEMBAYARAN =================
+// ================= SIMPAN PEMBAYARAN (Firestore) =================
 function saveBayar() {
-  const indexStr = document.getElementById("pilihBarang").value;
+  const docId = document.getElementById("pilihBarang").value;
   const tgl = document.getElementById("tglBayar").value;
   const nominal = document.getElementById("nominal").value;
   const fileInput = document.getElementById("bukti");
   const file = fileInput.files[0];
 
-  // Validasi
-  if (indexStr === "" || indexStr === null || indexStr === undefined) {
-    showToast("⚠️ Pilih barang terlebih dahulu!", "error");
-    return;
-  }
-  if (!tgl) {
-    showToast("⚠️ Tanggal bayar wajib diisi!", "error");
-    return;
-  }
-  if (!nominal || Number(nominal) <= 0) {
-    showToast("⚠️ Nominal pembayaran harus lebih dari 0!", "error");
-    return;
-  }
+  if (!docId) { showToast("⚠️ Pilih barang terlebih dahulu!", "error"); return; }
+  if (!tgl) { showToast("⚠️ Tanggal bayar wajib diisi!", "error"); return; }
+  if (!nominal || Number(nominal) <= 0) { showToast("⚠️ Nominal pembayaran harus lebih dari 0!", "error"); return; }
 
-  const index = Number(indexStr);
-
-  if (!data[index]) {
-    showToast("⚠️ Data barang tidak ditemukan!", "error");
-    return;
-  }
-
-  // Validasi file jika ada
   if (file) {
-    if (!file.type.startsWith("image/")) {
-      showToast("⚠️ File harus berupa gambar!", "error");
-      fileInput.value = "";
-      return;
-    }
-    if (file.size > 3 * 1024 * 1024) {
-      showToast("⚠️ Ukuran gambar maks 3MB!", "error");
-      fileInput.value = "";
-      return;
-    }
+    if (!file.type.startsWith("image/")) { showToast("⚠️ File harus berupa gambar!", "error"); fileInput.value = ""; return; }
+    if (file.size > 3 * 1024 * 1024) { showToast("⚠️ Ukuran gambar maks 3MB!", "error"); fileInput.value = ""; return; }
+  }
 
-    // Proses dengan gambar
-    const reader = new FileReader();
-    reader.onload = function () {
-      data[index].pembayaran.push({ tgl, nominal: Number(nominal), bukti: reader.result });
-      saveToStorage();
-      renderTable();
-      loadSelectBarang();
+  const btnSave = document.querySelector('#formBayar .btn-save');
+  btnSave.disabled = true;
+  btnSave.textContent = "⏳ Menyimpan...";
+
+  const doSave = (bukti) => {
+    const itemRef = db.collection("cicilan").doc(docId);
+    const bayarBaru = { tgl, nominal: Number(nominal), bukti: bukti || null };
+
+    // Use arrayUnion to atomically add to pembayaran array
+    itemRef.update({
+      pembayaran: firebase.firestore.FieldValue.arrayUnion(bayarBaru)
+    })
+    .then(() => {
       clearFormBayar();
+      hideForm();
       showToast("✅ Pembayaran berhasil disimpan!");
-    };
-    reader.onerror = function () {
-      showToast("⚠️ Gagal membaca file gambar!", "error");
-    };
+    })
+    .catch((err) => {
+      showToast("❌ Gagal simpan pembayaran: " + err.message, "error");
+    })
+    .finally(() => {
+      btnSave.disabled = false;
+      btnSave.textContent = "💾 Simpan Pembayaran";
+    });
+  };
+
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = (e) => doSave(e.target.result);
+    reader.onerror = () => { showToast("⚠️ Gagal membaca file!", "error"); btnSave.disabled = false; btnSave.textContent = "💾 Simpan Pembayaran"; };
     reader.readAsDataURL(file);
   } else {
-    // Simpan tanpa bukti
-    data[index].pembayaran.push({ tgl, nominal: Number(nominal), bukti: null });
-    saveToStorage();
-    renderTable();
-    loadSelectBarang();
-    clearFormBayar();
-    showToast("✅ Pembayaran tersimpan!");
+    doSave(null);
   }
 }
 
-// ================= SAVE TO STORAGE =================
-function saveToStorage() {
-  try {
-    localStorage.setItem("cicilan", JSON.stringify(data));
-  } catch (e) {
-    showToast("⚠️ Gagal menyimpan data (storage penuh?)", "error");
-  }
+// ================= DELETE CICILAN (Firestore) =================
+function deleteData(docId, nama) {
+  if (!confirm(`Hapus cicilan "${nama}"? Semua data pembayaran akan hilang.`)) return;
+
+  db.collection("cicilan").doc(docId).delete()
+    .then(() => showToast("🗑️ Cicilan dihapus"))
+    .catch((err) => showToast("❌ Gagal hapus: " + err.message, "error"));
 }
 
-// ================= DELETE CICILAN =================
-function deleteData(index) {
-  if (!data[index]) return;
-  if (!confirm(`Hapus cicilan "${data[index].nama}"? Semua data pembayaran akan hilang.`)) return;
-  data.splice(index, 1);
-  saveToStorage();
-  renderTable();
-  // Refresh select jika form bayar sedang terbuka
-  if (!document.getElementById("formBayar").classList.contains("hidden")) {
-    loadSelectBarang();
-  }
-  showToast("🗑️ Cicilan dihapus");
-}
-
-// ================= DELETE BAYAR =================
-function deleteBayar(itemIndex, bayarIndex) {
-  if (!data[itemIndex]) return;
+// ================= DELETE BAYAR (Firestore) =================
+function deleteBayar(docId, bayarIndex) {
   if (!confirm("Hapus data pembayaran ini?")) return;
-  data[itemIndex].pembayaran.splice(bayarIndex, 1);
-  saveToStorage();
-  renderTable();
-  // Refresh select jika form bayar sedang terbuka
-  if (!document.getElementById("formBayar").classList.contains("hidden")) {
-    loadSelectBarang();
-  }
-  showToast("🗑️ Pembayaran dihapus");
+
+  const item = data.find(d => d.id === docId);
+  if (!item) return;
+
+  const pembayaran = Array.isArray(item.pembayaran) ? [...item.pembayaran] : [];
+  pembayaran.splice(bayarIndex, 1);
+
+  db.collection("cicilan").doc(docId).update({ pembayaran })
+    .then(() => showToast("🗑️ Pembayaran dihapus"))
+    .catch((err) => showToast("❌ Gagal hapus: " + err.message, "error"));
 }
 
 // ================= LOGIN =================
@@ -439,7 +446,7 @@ function doLogin() {
     closeModal("loginModal");
     document.getElementById("password").value = "";
     renderTable();
-    showToast("✅ Login berhasil!");
+    showToast("✅ Login berhasil! Selamat datang Admin 👤");
   } else {
     showToast("❌ Password salah!", "error");
     document.getElementById("password").value = "";
@@ -462,12 +469,12 @@ logoutBtn.onclick = () => {
 
 // Klik luar modal = tutup
 window.onclick = (e) => {
-  if (e.target === document.getElementById("loginModal")) closeModal("loginModal");
-  if (e.target === document.getElementById("detailModal")) closeModal("detailModal");
-  if (e.target === document.getElementById("imgModal")) closeModal("imgModal");
+  if (e.target.id === "loginModal") closeModal("loginModal");
+  if (e.target.id === "detailModal") closeModal("detailModal");
+  if (e.target.id === "imgModal") closeModal("imgModal");
 };
 
-// ================= TOAST NOTIFICATION =================
+// ================= TOAST =================
 function showToast(msg, type = "success") {
   let toast = document.getElementById("toast");
   if (!toast) {
@@ -478,7 +485,7 @@ function showToast(msg, type = "success") {
   toast.textContent = msg;
   toast.className = `toast ${type} show`;
   clearTimeout(toast._timer);
-  toast._timer = setTimeout(() => toast.classList.remove("show"), 3000);
+  toast._timer = setTimeout(() => toast.classList.remove("show"), 3500);
 }
 
 // ================= CLEAR FORM =================
@@ -491,21 +498,14 @@ function clearFormBaru() {
 }
 
 function clearFormBayar() {
-  // Reset select ke pilih default
   const select = document.getElementById("pilihBarang");
   if (select) select.value = "";
-
   document.getElementById("tglBayar").value = "";
   document.getElementById("nominal").value = "";
-
   const fileInput = document.getElementById("bukti");
   if (fileInput) fileInput.value = "";
-
   const img = document.getElementById("previewImg");
-  if (img) {
-    img.src = "";
-    img.style.display = "none";
-  }
+  if (img) { img.src = ""; img.style.display = "none"; }
   const label = document.querySelector(".file-upload-label");
   if (label) label.style.display = "flex";
 }
@@ -513,7 +513,15 @@ function clearFormBayar() {
 // ================= INIT =================
 document.addEventListener("DOMContentLoaded", () => {
 
-  renderTable();
+  // Load data dari Firestore
+  loadDataRealtime();
+
+  // Set today as default date
+  const today = new Date().toISOString().split("T")[0];
+  const tglBayar = document.getElementById("tglBayar");
+  const tglMulai = document.getElementById("tglMulaiBaru");
+  if (tglBayar) tglBayar.value = today;
+  if (tglMulai) tglMulai.value = today;
 
   // Preview gambar saat pilih file
   const buktiInput = document.getElementById("bukti");
@@ -540,7 +548,6 @@ document.addEventListener("DOMContentLoaded", () => {
         showToast("⚠️ File harus berupa gambar!", "error");
         this.value = "";
       } else {
-        // File dibatalkan / dihapus
         img.src = "";
         img.style.display = "none";
         if (label) label.style.display = "flex";
